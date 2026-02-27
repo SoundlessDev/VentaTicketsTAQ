@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dimensiones optimizadas para pantallas xxxhdpi -->
+    <dimen name="spacing_small">6dp</dimen>
+    <dimen name="spacing_medium">12dp</dimen>
+    <dimen name="spacing_large">24dp</dimen>
+    <dimen name="spacing_xlarge">36dp</dimen>
+    <dimen name="spacing_xxlarge">48dp</dimen>
+</resources> 

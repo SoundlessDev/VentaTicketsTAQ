@@ -1,0 +1,17 @@
+# Gradle
+.gradle/
+build/
+
+# Gradle cache (muy importante)
+**/caches/
+.cxx/
+
+# Android Studio
+.idea/
+*.iml
+
+# Documentacion
+*.md
+
+# Scripts PowerShell
+*.ps1

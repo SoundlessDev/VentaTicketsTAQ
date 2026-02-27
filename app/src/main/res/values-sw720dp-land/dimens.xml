@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dimensiones optimizadas para orientación landscape en pantallas medianas y grandes -->
+    <dimen name="screen_padding_horizontal">24dp</dimen>
+    <dimen name="screen_padding_vertical">16dp</dimen>
+    <dimen name="spacing_large">16dp</dimen>
+    <dimen name="spacing_xlarge">20dp</dimen>
+    <dimen name="button_width">200dp</dimen>
+    <dimen name="card_padding">20dp</dimen>
+</resources> 

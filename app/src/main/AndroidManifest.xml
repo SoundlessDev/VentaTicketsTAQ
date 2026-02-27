@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    
+    <!-- Permiso para alarmas exactas (Android 12+) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <!-- Permisos Bluetooth para Android 12+ -->
+<!--    <uses-permission android:name="android.permission.BLUETOOTH" />-->
+<!--    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />-->
+<!--    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />-->
+<!--    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />-->
+
+    <!-- Bluetooth clásico (solo hasta Android 11) -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+
+    <!-- Bluetooth Android 12+ -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        tools:targetApi="31">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        
+        <!-- BroadcastReceiver para manejar alarmas de cambio de tarifas -->
+        <receiver
+            android:name=".alarms.TarifasAlarmReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.ventatickets.ventaticketstaxis.INICIO_NOCTURNO" />
+                <action android:name="com.ventatickets.ventaticketstaxis.FIN_NOCTURNO" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>

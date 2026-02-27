@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Colores de fondo para modo oscuro -->
+    <color name="dark_background">#FF121212</color>
+    <color name="dark_surface">#FF1E1E1E</color>
+    
+    <!-- Colores de texto para modo oscuro -->
+    <color name="dark_on_surface">#FFE6E1E5</color>
+    <color name="dark_on_background">#FFE6E1E5</color>
+</resources> 

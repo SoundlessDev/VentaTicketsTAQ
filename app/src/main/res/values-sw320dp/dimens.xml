@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dimensiones optimizadas para pantallas muy pequeñas -->
+    <dimen name="screen_padding_horizontal">8dp</dimen>
+    <dimen name="screen_padding_vertical">8dp</dimen>
+    <dimen name="spacing_large">12dp</dimen>
+    <dimen name="spacing_xlarge">16dp</dimen>
+    <dimen name="button_width">160dp</dimen>
+    <dimen name="card_padding">12dp</dimen>
+</resources> 
