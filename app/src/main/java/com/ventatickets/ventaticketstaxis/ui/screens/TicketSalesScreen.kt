@@ -81,6 +81,7 @@ import kotlinx.coroutines.withContext
 import com.ventatickets.ventaticketstaxis.data.ServiceLocator
 import com.ventatickets.ventaticketstaxis.ui.viewmodels.DestinationViewModel
 import com.ventatickets.ventaticketstaxis.data.NocturnoHelper
+import com.ventatickets.ventaticketstaxis.data.SaveDestinoManualRequest
 import com.ventatickets.ventaticketstaxis.notifications.NotificationHelper
 import com.ventatickets.ventaticketstaxis.workers.DataRefreshWorker
 import kotlinx.coroutines.delay
@@ -127,6 +128,10 @@ fun TicketSalesScreen(
 
     var selectedZone by remember { mutableStateOf<String?>(null) }
     var selectedDestination by remember { mutableStateOf<String?>(null) }
+    var manualDestination by remember { mutableStateOf("") }
+    var isManualZone by remember { mutableStateOf(false) }
+    var showManualDestinationDialog by remember { mutableStateOf(false) }
+    var showGuardarDestinoDialog by remember { mutableStateOf(false) }
     var cost by remember { mutableStateOf("000") }
     var folio by remember { mutableStateOf("") }
     var currentSection by remember { mutableStateOf(0) }
@@ -182,7 +187,6 @@ fun TicketSalesScreen(
                 android.util.Log.d("TicketSalesScreen", "Actualizando costo por zona: $nuevoCosto")
                 cost = nuevoCosto.toString()
                 displayZone = zonaSel.zona
-                displayDestination = zonaSel.descrip
             }
         }
     }
@@ -399,7 +403,9 @@ fun TicketSalesScreen(
         val isZonaSection = section == 0
         val isDestinoSection = section == 1
 
-        val zonaValida = !selectedZone.isNullOrEmpty() && displayZone != "---"
+        val zonaValida = !selectedZone.isNullOrEmpty() &&
+                displayZone != "---" &&
+                (!isManualZone || manualDestination.isNotBlank())
         val destinoValido = !selectedDestination.isNullOrEmpty() && displayZone != "---"
         val costoValido = cost != "000" && cost.isNotEmpty()
         val folioValido = folio.isNotEmpty() && folio.length >= 8 && !isLoadingFolio
@@ -411,6 +417,13 @@ fun TicketSalesScreen(
             !folioValido -> "El folio debe tener al menos 8 dígitos"
             else -> null // Todo válido
         }
+    }
+
+    fun destinoYaExiste(destino: String, zona: String?): Boolean {
+        if (zona == null) return false
+
+        return (dropdownZonaDifS + dropdownZonaS)
+            .any { it.titulo.equals(destino, ignoreCase = true) && it.zona == zona }
     }
 
     // Log para debuggear
@@ -573,10 +586,10 @@ fun TicketSalesScreen(
             isZebraPrinter -> {
                 val zpl = if (isQrCode) {
                     android.util.Log.d("TicketSalesScreen", "Enviando ticket ZPL con QR a impresora: $macAddress")
-                    buildZplQrCommand(empresaActual, rfcActual, domicilioActual, fecha, folioActual, displayDestination, costo)
+                    buildZplQrCommand(empresaActual, rfcActual, domicilioActual, fecha, folioActual, displayDestination,displayZone,costo)
                 } else {
                     android.util.Log.d("TicketSalesScreen", "Enviando ticket ZPL con Código de Barras a impresora: $macAddress")
-                    buildZplBarcodeCommand(empresaActual, rfcActual, domicilioActual, fecha, folioActual, displayDestination, costo)
+                    buildZplBarcodeCommand(empresaActual, rfcActual, domicilioActual, fecha, folioActual, displayDestination,displayZone,costo)
                 }
                 sendZplToZebra(context, macAddress, zpl) { success, error ->
                     if (success) {
@@ -644,6 +657,8 @@ fun TicketSalesScreen(
         displayDestination = "---"
         ticketGuardado = false
         showReprintButton = false
+        manualDestination = ""
+        isManualZone = false
     }
 
     val bluetoothPermissions = arrayOf(
@@ -935,46 +950,58 @@ fun TicketSalesScreen(
                                             val costoActualBtn = cost
                                             val destinoActualBtn = when (section) {
                                                 0 -> {
-                                                    // Buscar la zona seleccionada y usar su descrip
-                                                    zones.find { it.zona == selectedZone }?.descrip ?: displayDestination
+                                                    if (isManualZone && manualDestination.isNotBlank()) {
+                                                        manualDestination
+                                                    } else {
+                                                        zones.find { it.zona == selectedZone }?.descrip ?: displayDestination
+                                                    }
                                                 }
                                                 1 -> {
-                                                    displayDestination // Ya es el título del destino seleccionado
+                                                    displayDestination
                                                 }
                                                 else -> displayDestination
                                             }
 
                                             // Guardar PRIMERO (transacción)
-                                            CoroutineScope(Dispatchers.Main).launch {
-                                                isSaving = true
-                                                snackbarMessage = null
-                                                guardarTicket(
-                                                    folio = folioActualBtn,
-                                                    costo = costoActualBtn,
-                                                    user = user,
-                                                    destino = destinoActualBtn,
-                                                    configZona = configZona,
-                                                    onSuccess = {
-                                                        // Solo si se guardó exitosamente, imprimir
-                                                        if (hasBluetoothPermissions()) {
-                                                            printTicket { success ->
-                                                                if (success) {
-                                                                    snackbarMessage = "Ticket generado e impreso exitosamente"
-                                                                    limpiarValores()
-                                                                } else {
-                                                                    snackbarMessage = "Ticket guardado. Error de impresión. Use 'Reimprimir'."
-                                                                    // NO limpiar valores para permitir reimpresión
+                                            // Si es destino manual nuevo, preguntar antes
+                                            if (
+                                                section == 0 &&
+                                                isManualZone &&
+                                                manualDestination.isNotBlank() &&
+                                                !destinoYaExiste(manualDestination, selectedZone)
+                                            ) {
+                                                showGuardarDestinoDialog = true
+                                            } else {
+
+                                                // Guardar PRIMERO (transacción)
+                                                CoroutineScope(Dispatchers.Main).launch {
+                                                    isSaving = true
+                                                    snackbarMessage = null
+                                                    guardarTicket(
+                                                        folio = folioActualBtn,
+                                                        costo = costoActualBtn,
+                                                        user = user,
+                                                        destino = destinoActualBtn,
+                                                        configZona = configZona,
+                                                        onSuccess = {
+                                                            if (hasBluetoothPermissions()) {
+                                                                printTicket { success ->
+                                                                    if (success) {
+                                                                        snackbarMessage = "Ticket generado e impreso exitosamente"
+                                                                        limpiarValores()
+                                                                    } else {
+                                                                        snackbarMessage = "Ticket guardado. Error de impresión. Use 'Reimprimir'."
+                                                                    }
                                                                 }
+                                                            } else {
+                                                                permissionLauncher.launch(bluetoothPermissions)
                                                             }
-                                                        } else {
-                                                            permissionLauncher.launch(bluetoothPermissions)
+                                                        },
+                                                        onError = {
+                                                            snackbarMessage = "Error al guardar ticket. Verifique la conexión."
                                                         }
-                                                    },
-                                                    onError = { msg ->
-                                                        snackbarMessage = "Error al guardar ticket. Verifique la conexión."
-                                                        // NO limpiar valores, permitir reintentar
-                                                    }
-                                                )
+                                                    )
+                                                }
                                             }
                                         },
                                         enabled = !isPrinting && !isLoadingFolio && isFolioComplete() && !isSaving,
@@ -1099,7 +1126,15 @@ fun TicketSalesScreen(
                                                 selectedZone = zone
                                                 displayZone = zone
                                                 cost = zoneCost.toString()
-                                                displayDestination = destination
+
+                                                if (zone != "S") {
+                                                    isManualZone = true
+                                                    manualDestination = ""
+                                                    displayDestination = ""
+                                                } else {
+                                                    isManualZone = false
+                                                    displayDestination = destination
+                                                }
                                             },
                                             onSpecialZoneSelected = { destination, newCost ->
                                                 selectedDestination = destination
@@ -1122,6 +1157,19 @@ fun TicketSalesScreen(
                                             currentFolio = folio,
                                             snackbarHostState = snackbarHostState
                                         )
+                                        if (isManualZone && selectedZone != "S") {
+                                            OutlinedTextField(
+                                                value = manualDestination,
+                                                onValueChange = {
+                                                    manualDestination = it
+                                                    displayDestination = it
+                                                },
+                                                label = { Text("Escribe el destino") },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp)
+                                            )
+                                        }
                                     }
                                     1 -> {
                                         DestinationSelectionSection(
@@ -1199,7 +1247,15 @@ fun TicketSalesScreen(
                                                     selectedZone = zone
                                                     displayZone = zone
                                                     cost = zoneCost.toString()
-                                                    displayDestination = destination
+
+                                                    if (zone != "S") {
+                                                        isManualZone = true
+                                                        manualDestination = ""
+                                                        showManualDestinationDialog = true
+                                                    } else {
+                                                        isManualZone = false
+                                                        displayDestination = destination
+                                                    }
                                                 },
                                                 onSpecialZoneSelected = { destination, newCost ->
                                                     selectedDestination = destination
@@ -1277,46 +1333,58 @@ fun TicketSalesScreen(
                                         val costoActualBtn = cost
                                         val destinoActualBtn = when (section) {
                                             0 -> {
-                                                // Buscar la zona seleccionada y usar su descrip
-                                                zones.find { it.zona == selectedZone }?.descrip ?: displayDestination
+                                                if (isManualZone && manualDestination.isNotBlank()) {
+                                                    manualDestination
+                                                } else {
+                                                    zones.find { it.zona == selectedZone }?.descrip ?: displayDestination
+                                                }
                                             }
                                             1 -> {
-                                                displayDestination // Ya es el título del destino seleccionado
+                                                displayDestination
                                             }
                                             else -> displayDestination
                                         }
 
                                         // Guardar PRIMERO (transacción)
-                                        CoroutineScope(Dispatchers.Main).launch {
-                                            isSaving = true
-                                            snackbarMessage = null
-                                            guardarTicket(
-                                                folio = folioActualBtn,
-                                                costo = costoActualBtn,
-                                                user = user,
-                                                destino = destinoActualBtn,
-                                                configZona = configZona,
-                                                onSuccess = {
-                                                    // Solo si se guardó exitosamente, imprimir
-                                                    if (hasBluetoothPermissions()) {
-                                                        printTicket { success ->
-                                                            if (success) {
-                                                                snackbarMessage = "Ticket generado e impreso exitosamente"
-                                                                limpiarValores()
-                                                            } else {
-                                                                snackbarMessage = "Ticket guardado. Error de impresión. Use 'Reimprimir'."
-                                                                // NO limpiar valores para permitir reimpresión
+                                        // Si es destino manual nuevo, preguntar antes
+                                        if (
+                                            section == 0 &&
+                                            isManualZone &&
+                                            manualDestination.isNotBlank() &&
+                                            !destinoYaExiste(manualDestination, selectedZone)
+                                        ) {
+                                            showGuardarDestinoDialog = true
+                                        } else {
+
+                                            // Guardar PRIMERO (transacción)
+                                            CoroutineScope(Dispatchers.Main).launch {
+                                                isSaving = true
+                                                snackbarMessage = null
+                                                guardarTicket(
+                                                    folio = folioActualBtn,
+                                                    costo = costoActualBtn,
+                                                    user = user,
+                                                    destino = destinoActualBtn,
+                                                    configZona = configZona,
+                                                    onSuccess = {
+                                                        if (hasBluetoothPermissions()) {
+                                                            printTicket { success ->
+                                                                if (success) {
+                                                                    snackbarMessage = "Ticket generado e impreso exitosamente"
+                                                                    limpiarValores()
+                                                                } else {
+                                                                    snackbarMessage = "Ticket guardado. Error de impresión. Use 'Reimprimir'."
+                                                                }
                                                             }
+                                                        } else {
+                                                            permissionLauncher.launch(bluetoothPermissions)
                                                         }
-                                                    } else {
-                                                        permissionLauncher.launch(bluetoothPermissions)
+                                                    },
+                                                    onError = {
+                                                        snackbarMessage = "Error al guardar ticket. Verifique la conexión."
                                                     }
-                                                },
-                                                onError = { msg ->
-                                                    snackbarMessage = "Error al guardar ticket. Verifique la conexión."
-                                                    // NO limpiar valores, permitir reintentar
-                                                }
-                                            )
+                                                )
+                                            }
                                         }
                                     },
                                     enabled = !isPrinting && !isLoadingFolio && isFolioComplete() && !isSaving,
@@ -1543,6 +1611,167 @@ fun TicketSalesScreen(
         }
     }
 
+    if (showManualDestinationDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showManualDestinationDialog = false
+            },
+            title = {
+                Text("Agregar Destino")
+            },
+            text = {
+                OutlinedTextField(
+                    value = manualDestination,
+                    onValueChange = { manualDestination = it },
+                    label = { Text("Escribe el destino") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                ElevatedButton(
+                    onClick = {
+                        if (manualDestination.isNotBlank()) {
+                            displayDestination = manualDestination
+                            showManualDestinationDialog = false
+                        }
+                    }
+                ) {
+                    Text("Confirmar")
+                }
+            },
+            dismissButton = {
+                ElevatedButton(
+                    onClick = {
+                        showManualDestinationDialog = false
+                        // Si cancela, limpiamos zona
+                        selectedZone = null
+                        displayZone = "---"
+                        cost = "000"
+                        isManualZone = false
+                    }
+                ) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (showGuardarDestinoDialog) {
+        AlertDialog(
+            onDismissRequest = { showGuardarDestinoDialog = false },
+            title = { Text("Guardar destino") },
+            text = {
+                Text("¿Desea guardar este destino para futuras ventas?")
+            },
+            confirmButton = {
+                ElevatedButton(
+                    onClick = {
+                        showGuardarDestinoDialog = false
+
+                        CoroutineScope(Dispatchers.Main).launch {
+                            try {
+                                val apiService = ServiceLocator.getApiService(context)
+
+                                val request = SaveDestinoManualRequest(
+                                    descrip = manualDestination,
+                                    zona = selectedZone ?: "",
+                                    costo = cost,
+                                    costo_nocturno = cost
+                                )
+
+                                val response = withContext(Dispatchers.IO) {
+                                    apiService.guardarDestinoManual(request)
+                                }
+
+                                if (response.mensaje.contains("Correcto", ignoreCase = true)) {
+
+                                    snackbarMessage = "Destino guardado correctamente"
+
+                                    destinationViewModel.loadDestinationsFromWebService()
+
+                                    delay(500)
+
+                                    // 🔥 CONTINUAR CON EL FLUJO NORMAL
+                                    guardarTicket(
+                                        folio = folio,
+                                        costo = cost,
+                                        user = userName,
+                                        destino = manualDestination,
+                                        configZona = AppConfig.getZona(context),
+                                        onSuccess = {
+                                            if (hasBluetoothPermissions()) {
+                                                printTicket { success ->
+                                                    if (success) {
+                                                        snackbarMessage = "Ticket generado e impreso exitosamente"
+                                                        limpiarValores()
+                                                    } else {
+                                                        snackbarMessage = "Ticket guardado. Error de impresión. Use 'Reimprimir'."
+                                                    }
+                                                }
+                                            } else {
+                                                permissionLauncher.launch(bluetoothPermissions)
+                                            }
+                                        },
+                                        onError = {
+                                            snackbarMessage = "Error al guardar ticket."
+                                        }
+                                    )
+                                } else {
+                                    snackbarMessage = "No se pudo guardar el destino"
+                                }
+
+                            } catch (e: Exception) {
+                                snackbarMessage = "Error al conectar con el servidor"
+                            }
+                        }
+                    }
+                ) {
+                    Text("Sí")
+                }
+            },
+            dismissButton = {
+                ElevatedButton(
+                    onClick = {
+
+                        showGuardarDestinoDialog = false
+
+                        // 🔥 Continuar flujo SIN guardar destino
+                        CoroutineScope(Dispatchers.Main).launch {
+
+                            guardarTicket(
+                                folio = folio,
+                                costo = cost,
+                                user = userName,
+                                destino = manualDestination,
+                                configZona = AppConfig.getZona(context),
+                                onSuccess = {
+                                    if (hasBluetoothPermissions()) {
+                                        printTicket { success ->
+                                            if (success) {
+                                                snackbarMessage = "Ticket generado e impreso exitosamente"
+                                                limpiarValores()
+                                            } else {
+                                                snackbarMessage = "Ticket guardado. Error de impresión. Use 'Reimprimir'."
+                                            }
+                                        }
+                                    } else {
+                                        permissionLauncher.launch(bluetoothPermissions)
+                                    }
+                                },
+                                onError = {
+                                    snackbarMessage = "Error al guardar ticket."
+                                }
+                            )
+                        }
+                    }
+                ) {
+                    Text("No")
+                }
+            }
+        )
+    }
+
     // Diálogo de información del usuario
     if (showUserDialog) {
         AlertDialog(
@@ -1719,3 +1948,6 @@ fun TicketSalesScreen(
         }
     }
 }
+
+
+

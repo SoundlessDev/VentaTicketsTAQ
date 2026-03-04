@@ -26,4 +26,15 @@ interface ApiService {
 
     @GET("datosEmpresa")
     suspend fun getEmpresaData(): List<EmpresaData>
+
+    @POST("guardarDestinoManual")
+    suspend fun guardarDestinoManual(
+        @Body request: SaveDestinoManualRequest
+    ): SaveDestinoManualResponse
+
+    @GET("listarImpresoras")
+    suspend fun listarImpresoras(): List<ImpresoraResponse>
+
+    @GET("listarApiKeys")
+    suspend fun listarApiKeys(): List<ApiKeyResponse>
 } 

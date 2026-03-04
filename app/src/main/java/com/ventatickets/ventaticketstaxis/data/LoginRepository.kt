@@ -134,6 +134,7 @@ class LoginRepository(private val context: Context) {
     }
 }
 
+
 fun sendZplToZebra(context: Context, macAddress: String, zpl: String, onResult: (Boolean, String?) -> Unit) {
     Thread {
         try {
@@ -294,25 +295,32 @@ fun buildZplQrCommand(
     fecha: String,
     folio: String,
     destino: String,
+    zona: String,
     costo: String
 ): String {
+
+    // Limpiar destino para quitar Zona
+    val destinoLimpio = destino.replace(Regex("\\s*\\([^)]*\\)"), "")
+
     return """
 ^XA
+^CI28
 ^PW352
-^LL540
+^LL580
 
-^FO0,40^A0N,25,25^FB352,3,5,C^FD$empresa^FS
-^FO0,120^A0N,20,20^FB352,2,5,C^FDRFC: $rfc^FS
+^FO0,60^A0N,25,25^FB352,3,5,C^FD$empresa^FS
+^FO0,130^A0N,20,20^FB352,2,5,C^FDRFC: $rfc^FS
 
-^FO30,170^A0N,25,25^FB290,2,5,L^FDDestino: $destino^FS
+^FO30,190^A0N,25,25^FB290,2,5,L^FDDestino: $destinoLimpio^FS
+^FO30,250^A0N,25,25^FDZona: $zona^FS
 
-^FO30,240^A0N,25,25^FDCosto: ${'$'}$costo.00^FS
-^FO30,280^A0N,25,25^FDFecha: $fecha^FS
-^FO30,320^A0N,25,25^FDFolio: $folio^FS
+^FO30,280^A0N,25,25^FDCosto: ${'$'}$costo.00^FS
+^FO30,320^A0N,25,25^FDFecha: $fecha^FS
+^FO30,360^A0N,25,25^FDFolio: $folio^FS
 
-^FO90,345^BQN,2,6^FDQA,$folio^FS
+^FO90,390^BQN,2,6^FDQA,$folio^FS
 
-^FO0,500^A0N,22,22^FB352,1,0,C^FDGracias por su preferencia!^FS
+^FO0,540^A0N,22,22^FB352,1,0,C^FDGracias por su preferencia!^FS
 
 ^XZ
 """.trimIndent()
@@ -695,27 +703,33 @@ fun buildZplBarcodeCommand(
     fecha: String,
     folio: String,
     destino: String,
+    zona: String,
     costo: String
 ): String {
+    // Limpiar destino para quitar Zona
+    val destinoLimpio = destino.replace(Regex("\\s*\\([^)]*\\)"), "")
+
     return """
 ^XA
+^CI28
 ^PW352
 ^LL560
 
 ^FO0,40^A0N,28,28^FB352,3,5,C^FD$empresa^FS
 ^FO0,110^A0N,22,22^FB352,2,5,C^FDRFC: $rfc^FS
 
-^FO30,160^A0N,25,25^FB290,2,5,L^FDDestino: $destino^FS
+^FO30,160^A0N,25,25^FB290,2,5,L^FDDestino: $destinoLimpio^FS
+^FO30,220^A0N,25,25^FDZona: $zona^FS
 
-^FO30,230^A0N,25,25^FDCosto: ${'$'}$costo.00^FS
-^FO30,270^A0N,25,25^FDFecha: $fecha^FS
-^FO30,310^A0N,25,25^FDFolio: $folio^FS
+^FO30,250^A0N,25,25^FDCosto: ${'$'}$costo.00^FS
+^FO30,290^A0N,25,25^FDFecha: $fecha^FS
+^FO30,330^A0N,25,25^FDFolio: $folio^FS
 
 ^BY3,3,110
-^FO40,350^BCN,110,Y,N,N
+^FO40,370^BCN,110,Y,N,N
 ^FD$folio^FS
 
-^FO0,510^A0N,22,22^FB352,1,0,C^FDGracias por su preferencia!^FS
+^FO0,520^A0N,22,22^FB352,1,0,C^FDGracias por su preferencia!^FS
 
 ^XZ
 """.trimIndent()

@@ -48,6 +48,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Check
+import com.ventatickets.ventaticketstaxis.data.ApiKeyResponse
+import com.ventatickets.ventaticketstaxis.data.ImpresoraResponse
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -88,14 +90,8 @@ fun LoginScreen(
 
     // Códigos de acceso válidos
     val validPasswords = listOf(
-        "2fHMmoCgRN",
-        "YNeDX0g6Be",
-        "LGg6VbGWTN",
-        "QDtmsfxiN4",
-        "6mxO71zt4G",
-        "soportesistemas",
-        "sistemasenlaces",
-        "sistemasenlaces92"
+        "SupervisorTAQ2026",
+        "soportesistemas"
     )
 
     // Estados para validación
@@ -115,6 +111,15 @@ fun LoginScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var snackbarMessage by remember { mutableStateOf<String?>(null) }
 
+    var impresoras by remember { mutableStateOf<List<ImpresoraResponse>>(emptyList()) }
+    var expandedMac by remember { mutableStateOf(false) }
+
+    var apiKeys by remember { mutableStateOf<List<ApiKeyResponse>>(emptyList()) }
+    var expandedApiKey by remember { mutableStateOf(false) }
+
+    var configAccessLevel by remember { mutableStateOf<String?>(null) }
+
+
     // Animación para la tarjeta
     val cardAlpha by animateFloatAsState(
         targetValue = if (isConfigComplete) 1f else 0.7f,
@@ -131,16 +136,50 @@ fun LoginScreen(
         }
     }
 
+    LaunchedEffect(showConfigDialog) {
+        if (showConfigDialog) {
+            try {
+                val apiService = ServiceLocator.getApiService(context)
+                impresoras = apiService.listarImpresoras()
+            } catch (e: Exception) {
+                println("Error cargando impresoras: ${e.message}")
+            }
+        }
+    }
+
+    LaunchedEffect(showConfigDialog) {
+        if (showConfigDialog) {
+            try {
+                val apiService = ServiceLocator.getApiService(context)
+
+                impresoras = apiService.listarImpresoras()
+                apiKeys = apiService.listarApiKeys()
+
+            } catch (e: Exception) {
+                println("Error cargando configuración: ${e.message}")
+            }
+        }
+    }
+
     fun validateConfigPassword(): Boolean {
         val cleanPassword = configPassword.trim()
+
         if (cleanPassword.isEmpty()) {
             passwordError = "El código de acceso es requerido"
             return false
         }
 
-        if (!validPasswords.contains(cleanPassword)) {
-            passwordError = "Código de acceso incorrecto"
-            return false
+        when (cleanPassword) {
+            "soportesistemas" -> {
+                configAccessLevel = "SOPORTE"
+            }
+            "SupervisorTAQ2026" -> {
+                configAccessLevel = "SUPERVISOR"
+            }
+            else -> {
+                passwordError = "Código de acceso incorrecto"
+                return false
+            }
         }
 
         passwordError = null
@@ -194,15 +233,15 @@ fun LoginScreen(
             tipoImpresoraError = null
         }
 
-        if (cleanPrinterMac.isEmpty()) {
-            printerMacError = "La MAC de la impresora es requerida"
-            hasError = true
-        } else if (!cleanPrinterMac.matches(Regex("^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"))) {
-            printerMacError = "Formato de MAC inválido. Use: XX:XX:XX:XX:XX:XX"
-            hasError = true
-        } else {
-            printerMacError = null
-        }
+//        if (cleanPrinterMac.isEmpty()) {
+//            printerMacError = "La MAC de la impresora es requerida"
+//            hasError = true
+//        } else if (!cleanPrinterMac.matches(Regex("^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"))) {
+//            printerMacError = "Formato de MAC inválido. Use: XX:XX:XX:XX:XX:XX"
+//            hasError = true
+//        } else {
+//            printerMacError = null
+//        }
 
         if (!hasError) {
             // Actualizar valores con espacios eliminados
@@ -545,6 +584,8 @@ fun LoginScreen(
         )
     }
 
+    val isSoporte = configAccessLevel == "SOPORTE"
+    val isSupervisor = configAccessLevel == "SUPERVISOR"
     // Full-screen dialog de configuración (Material Design 3)
     if (showConfigDialog) {
         FullScreenDialog(
@@ -566,6 +607,7 @@ fun LoginScreen(
                     OutlinedTextField(
                         value = serverIp,
                         onValueChange = { serverIp = it },
+                        enabled = isSoporte,
                         label = { Text("IP del servidor (IP:PUERTO)") },
                         isError = serverIpError != null,
                         singleLine = true,
@@ -666,32 +708,84 @@ fun LoginScreen(
                         }
                     }
 
-                    OutlinedTextField(
-                        value = printerMac,
-                        onValueChange = { printerMac = it },
-                        label = { Text("MAC de la impresora") },
-                        isError = printerMacError != null,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        supportingText = if (printerMacError != null) {
-                            { Text(printerMacError ?: "", color = MaterialTheme.colorScheme.error) }
-                        } else null
-                    )
+                    ExposedDropdownMenuBox(
+                        expanded = expandedMac,
+                        onExpandedChange = { expandedMac = !expandedMac }
+                    ) {
+                        OutlinedTextField(
+                            value = printerMac,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("MAC de la impresora") },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedMac)
+                            },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
 
-                    OutlinedTextField(
-                        value = apiKey,
-                        onValueChange = { apiKey = it },
-                        label = { Text("API Key (Token de seguridad)") },
-                        placeholder = { Text("Opcional - Token para autenticación") },
-                        isError = apiKeyError != null,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        supportingText = if (apiKeyError != null) {
-                            { Text(apiKeyError ?: "", color = MaterialTheme.colorScheme.error) }
-                        } else {
-                            { Text("Token requerido por Node-RED para validar peticiones") }
+                        ExposedDropdownMenu(
+                            expanded = expandedMac,
+                            onDismissRequest = { expandedMac = false }
+                        ) {
+                            impresoras.forEach { impresora ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(impresora.nombre)
+                                            Text(
+                                                text = impresora.direccion_mac,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        printerMac = impresora.direccion_mac
+                                        expandedMac = false
+                                    }
+                                )
+                            }
                         }
-                    )
+                    }
+
+                    ExposedDropdownMenuBox(
+                        expanded = expandedApiKey,
+                        onExpandedChange = { expandedApiKey = !expandedApiKey }
+                    ) {
+                        OutlinedTextField(
+                            value = apiKey,
+                            onValueChange = {},
+                            enabled = isSoporte,
+                            readOnly = true,
+                            label = { Text("API Key (Token de seguridad)") },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedApiKey)
+                            },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = expandedApiKey,
+                            onDismissRequest = { expandedApiKey = false }
+                        ) {
+                            apiKeys.forEach { item ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(item.dispositivo)
+                                            Text(
+                                                text = item.api_key,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        apiKey = item.api_key
+                                        expandedApiKey = false
+                                    }
+                                )
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(16.dp))
                 }
