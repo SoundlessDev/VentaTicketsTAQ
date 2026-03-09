@@ -47,7 +47,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle   .viewmodel.compose.viewModel
 import com.ventatickets.ventaticketstaxis.data.LoginResponse
 import com.ventatickets.ventaticketstaxis.data.sendZplToZebra
 import com.ventatickets.ventaticketstaxis.data.sendEscPosToPrinter
@@ -126,6 +126,7 @@ fun TicketSalesScreen(
         else -> "Nombre no disponible"
     }
 
+    var pendingSnackbarMessage by remember { mutableStateOf<String?>(null) }
     var selectedZone by remember { mutableStateOf<String?>(null) }
     var selectedDestination by remember { mutableStateOf<String?>(null) }
     var manualDestination by remember { mutableStateOf("") }
@@ -207,6 +208,35 @@ fun TicketSalesScreen(
     val coroutineScope = rememberCoroutineScope()
     val pullToRefreshState = rememberPullToRefreshState()
 
+    suspend fun <T> retryOperation(
+        maxRetries: Int = 3,
+        delayMillis: Long = 500,
+        block: suspend () -> T
+    ): T {
+        var attempt = 0
+        var lastException: Exception? = null
+
+        while (attempt < maxRetries) {
+            try {
+                return block()
+            } catch (e: Exception) {
+                lastException = e
+                attempt++
+
+                android.util.Log.w(
+                    "TicketSalesScreen",
+                    "Intento ${attempt} fallido: ${e.message}"
+                )
+
+                if (attempt < maxRetries) {
+                    delay(delayMillis)
+                }
+            }
+        }
+
+        throw lastException ?: Exception("Error desconocido")
+    }
+
     // Función para refrescar datos (extraída para reutilización)
     fun refreshData(scope: CoroutineScope) {
         if (isRefreshingData) return
@@ -228,7 +258,9 @@ fun TicketSalesScreen(
 
                 // 1. Cargar datos de empresa
                 android.util.Log.d("TicketSalesScreen", "1. Cargando datos de empresa...")
-                val empresaResult = loginViewModel.loadEmpresaDataSuspend(forceRefresh = true)
+                val empresaResult = retryOperation{
+                    loginViewModel.loadEmpresaDataSuspend(forceRefresh = true)
+                }
 
                 empresaResult.fold(
                     onSuccess = { empresaData ->
@@ -277,7 +309,9 @@ fun TicketSalesScreen(
                 // 2. Cargar zonas (preservando datos actuales si hay error)
                 android.util.Log.d("TicketSalesScreen", "2. Cargando zonas (/cargarZonas)...")
                 val zonasAntes = zoneViewModel.zones.value.size
-                zoneViewModel.loadZonesFromWebService()
+                retryOperation {
+                    zoneViewModel.loadZonesFromWebService()
+                }
 
                 // Esperar a que termine la carga de zonas
                 delay(1000)
@@ -305,7 +339,9 @@ fun TicketSalesScreen(
                 android.util.Log.d("TicketSalesScreen", "3. Cargando destinos (/cargarDropdownZona-S y /cargarDropdownZonaDif-S)...")
                 val destinosAntesS = destinationViewModel.dropdownZonaS.value.size
                 val destinosAntesDifS = destinationViewModel.dropdownZonaDifS.value.size
-                destinationViewModel.loadDestinationsFromWebService()
+                retryOperation {
+                    destinationViewModel.loadDestinationsFromWebService()
+                }
 
                 // Esperar a que termine la carga de destinos
                 delay(1000)
@@ -536,29 +572,97 @@ fun TicketSalesScreen(
         onError: (String) -> Unit
     ) {
         isSaving = true
-        try {
-            val apiService = ServiceLocator.getApiService(context)
-            val request = SaveTicketRequest(
-                folio = folio,
-                costo = costo,
-                user = user,
-                destino = destino,
-                configZona = configZona
-            )
-            val response: SaveTicketResponse = withContext(Dispatchers.IO) {
-                apiService.saveTicket(request)
+
+        val maxRetries = 3
+        var attempt = 0
+
+        while (attempt < maxRetries) {
+
+            try {
+
+                val apiService = ServiceLocator.getApiService(context)
+
+                val request = SaveTicketRequest(
+                    folio = folio,
+                    costo = costo,
+                    user = user,
+                    destino = destino,
+                    configZona = configZona
+                )
+
+                val response: SaveTicketResponse = withContext(Dispatchers.IO) {
+                    apiService.saveTicket(request)
+                }
+
+                if (response.mensaje.contains("InsertCorrecto", ignoreCase = true)) {
+                    ticketGuardado = true
+                    onSuccess()
+                    isSaving = false
+                    return
+                } else {
+                    onError(response.mensaje)
+                    isSaving = false
+                    return
+                }
+
+            } catch (e: Exception) {
+
+                attempt++
+
+                android.util.Log.w(
+                    "TicketSalesScreen",
+                    "Intento guardarTicket $attempt fallido: ${e.message}"
+                )
+
+                if (attempt >= maxRetries) {
+                    onError("Error al guardar ticket. Verifique la conexión.")
+                    isSaving = false
+                    return
+                }
+
+                delay(400)
             }
-            if (response.mensaje.contains("InsertCorrecto", ignoreCase = true)) {
-                ticketGuardado = true
-                onSuccess()
-            } else {
-                onError(response.mensaje)
-            }
-        } catch (e: Exception) {
-            onError(e.message ?: "Error desconocido al guardar ticket")
-        } finally {
-            isSaving = false
         }
+    }
+
+
+    fun printWithRetry(
+        maxRetries: Int = 3,
+        block: (callback: (Boolean) -> Unit) -> Unit,
+        onResult: (Boolean) -> Unit
+    ) {
+
+        var attempt = 0
+
+        fun tryPrint() {
+
+            attempt++
+
+            block { success ->
+
+                if (success) {
+                    onResult(true)
+                } else {
+
+                    if (attempt < maxRetries) {
+
+                        android.util.Log.w(
+                            "TicketSalesScreen",
+                            "Reintentando impresión intento $attempt"
+                        )
+
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            tryPrint()
+                        }, 500)
+
+                    } else {
+                        onResult(false)
+                    }
+                }
+            }
+        }
+
+        tryPrint()
     }
 
     fun printTicket(onResult: (Boolean) -> Unit) {
@@ -591,7 +695,14 @@ fun TicketSalesScreen(
                     android.util.Log.d("TicketSalesScreen", "Enviando ticket ZPL con Código de Barras a impresora: $macAddress")
                     buildZplBarcodeCommand(empresaActual, rfcActual, domicilioActual, fecha, folioActual, displayDestination,displayZone,costo)
                 }
-                sendZplToZebra(context, macAddress, zpl) { success, error ->
+                printWithRetry(block = { callback ->
+
+                    sendZplToZebra(context, macAddress, zpl) { success, error ->
+                        callback(success)
+                    }
+
+                }) { success ->
+
                     if (success) {
                         snackbarMessage = "Ticket impreso exitosamente ($tipoCodigoTexto)"
                         showReprintButton = false
@@ -601,6 +712,7 @@ fun TicketSalesScreen(
                         showReprintButton = true
                         onResult(false)
                     }
+
                     isPrinting = false
                 }
             }
@@ -1670,59 +1782,90 @@ fun TicketSalesScreen(
                         showGuardarDestinoDialog = false
 
                         CoroutineScope(Dispatchers.Main).launch {
-                            try {
-                                val apiService = ServiceLocator.getApiService(context)
 
-                                val request = SaveDestinoManualRequest(
-                                    descrip = manualDestination,
-                                    zona = selectedZone ?: "",
+                            val maxRetries = 3
+                            var attempt = 0
+                            var success = false
+                            var responseMessage = ""
+
+                            while (attempt < maxRetries && !success) {
+
+                                try {
+
+                                    val apiService = ServiceLocator.getApiService(context)
+
+                                    val request = SaveDestinoManualRequest(
+                                        descrip = manualDestination,
+                                        zona = selectedZone ?: "",
+                                        costo = cost,
+                                        costo_nocturno = cost
+                                    )
+
+                                    val response = withContext(Dispatchers.IO) {
+                                        apiService.guardarDestinoManual(request)
+                                    }
+
+                                    responseMessage = response.mensaje
+
+                                    if (response.mensaje.contains("Correcto", ignoreCase = true)) {
+                                        success = true
+                                        break
+                                    }
+
+                                } catch (e: Exception) {
+
+                                    android.util.Log.w(
+                                        "TicketSalesScreen",
+                                        "Intento guardar destino ${attempt + 1} fallido: ${e.message}"
+                                    )
+
+                                }
+
+                                attempt++
+
+                                if (!success && attempt < maxRetries) {
+                                    delay(400)
+                                }
+                            }
+
+                            if (success) {
+
+                                snackbarMessage = "Destino guardado correctamente"
+
+                                destinationViewModel.loadDestinationsFromWebService()
+
+                                delay(500)
+
+                                // 🔥 CONTINUAR FLUJO NORMAL
+                                guardarTicket(
+                                    folio = folio,
                                     costo = cost,
-                                    costo_nocturno = cost
+                                    user = userName,
+                                    destino = manualDestination,
+                                    configZona = AppConfig.getZona(context),
+                                    onSuccess = {
+                                        if (hasBluetoothPermissions()) {
+                                            printTicket { success ->
+                                                if (success) {
+                                                    snackbarMessage = "Ticket generado e impreso exitosamente"
+                                                    limpiarValores()
+                                                } else {
+                                                    snackbarMessage = "Ticket guardado. Error de impresión. Use 'Reimprimir'."
+                                                }
+                                            }
+                                        } else {
+                                            permissionLauncher.launch(bluetoothPermissions)
+                                        }
+                                    },
+                                    onError = {
+                                        snackbarMessage = "Error al guardar ticket."
+                                    }
                                 )
 
-                                val response = withContext(Dispatchers.IO) {
-                                    apiService.guardarDestinoManual(request)
-                                }
+                            } else {
 
-                                if (response.mensaje.contains("Correcto", ignoreCase = true)) {
+                                snackbarMessage = "No se pudo guardar el destino. Verifique la conexión."
 
-                                    snackbarMessage = "Destino guardado correctamente"
-
-                                    destinationViewModel.loadDestinationsFromWebService()
-
-                                    delay(500)
-
-                                    // 🔥 CONTINUAR CON EL FLUJO NORMAL
-                                    guardarTicket(
-                                        folio = folio,
-                                        costo = cost,
-                                        user = userName,
-                                        destino = manualDestination,
-                                        configZona = AppConfig.getZona(context),
-                                        onSuccess = {
-                                            if (hasBluetoothPermissions()) {
-                                                printTicket { success ->
-                                                    if (success) {
-                                                        snackbarMessage = "Ticket generado e impreso exitosamente"
-                                                        limpiarValores()
-                                                    } else {
-                                                        snackbarMessage = "Ticket guardado. Error de impresión. Use 'Reimprimir'."
-                                                    }
-                                                }
-                                            } else {
-                                                permissionLauncher.launch(bluetoothPermissions)
-                                            }
-                                        },
-                                        onError = {
-                                            snackbarMessage = "Error al guardar ticket."
-                                        }
-                                    )
-                                } else {
-                                    snackbarMessage = "No se pudo guardar el destino"
-                                }
-
-                            } catch (e: Exception) {
-                                snackbarMessage = "Error al conectar con el servidor"
                             }
                         }
                     }
@@ -1948,6 +2091,31 @@ fun TicketSalesScreen(
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
